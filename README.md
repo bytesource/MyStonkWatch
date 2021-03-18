@@ -1,0 +1,3 @@
+# StonkWatch
+
+It begins.

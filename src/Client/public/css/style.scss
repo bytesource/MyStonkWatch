@@ -1,0 +1,14 @@
+@import "~bulma/sass/utilities/initial-variables";
+@import "~bulma/sass/utilities/functions";
+
+$primary: #6A42B7 !default;
+
+@import '~bulma/bulma.sass';
+
+nav.navbar {
+    background-color: $primary;
+}
+
+
+@media screen and (max-width: 1023px) {
+}
