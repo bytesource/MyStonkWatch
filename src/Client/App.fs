@@ -1,8 +1,10 @@
 module App
 
+open System
+
 // https://github.com/bengobeil/StonkWatch/blob/master/src/Client/App.fs
 // https://github.com/bytesource/MyStonkWatch
-
+open Sutil
 open Sutil.DOM.Html
 open Sutil.DOM
 open Sutil.Attr
@@ -16,11 +18,12 @@ module Style =
 
 
 module Bulma = 
-    let createElement el className =
-        fun props -> el <| [ class' className ] @ props
+    let createElement nodeFn css =
+        fun props -> nodeFn <| [ class' css ] @ props
 
     let navbar = createElement nav "navbar" 
     let level = createElement nav "level"
+    let table = createElement table "table"
 
     
     module Navbar = 
@@ -37,6 +40,12 @@ type SummaryInfo =
     | Positions
     | Balances
 
+module SummaryInfo = 
+    let name summaryInfo = 
+        match summaryInfo with 
+        | Positions -> "Positions"
+        | Balances  -> "Balances"
+
 
 type Model = 
     {
@@ -45,18 +54,26 @@ type Model =
         SelectedPane: SummaryInfo
     }
 
-// Model helpers
+// Events
+type Message = 
+    | SelectedPaneChanged of SummaryInfo
 
-type Message = NoOp
 
 let init () : Model = { 
     OpenPnl = 3.35m<percent>
     DayPnl = -3.32m<percent>
-    SelectedPane = Positions
+    SelectedPane = Balances
 }
 
+
 let update (msg : Message) (model : Model) : Model =
-    model
+    match msg with 
+    | SelectedPaneChanged summaryInfo ->
+        if summaryInfo <> model.SelectedPane then
+            { model with SelectedPane = summaryInfo }
+        else 
+            model
+        
 
 // View --------------------------------------------
 let mainStylesheet = 
@@ -68,6 +85,8 @@ let mainStylesheet =
                                      Css.fontWeight "500" ]
           rule ".pnl-element.positive" [ Css.color "green" ]
           rule ".pnl-element.negative" [ Css.color "red" ]
+          rule "button.button.selected" [ Css.backgroundColor "#6A4287"
+                                          Css.color "white" ]
         ]
 
 
@@ -78,8 +97,20 @@ module Navbar =
         navbar [ Navbar.brand [ Navbar.item [ h5 [ text "MY STONK"] ]]]
 
 
-module Main = 
+module SummaryPage = 
     open Bulma
+
+    let header = 
+        [ thead [ tr [ th [ text "Symbols" ] 
+                       th [ text "Price"]
+                       th [ el "abbr" [ attr("title", "Open quantity")]
+                            text "QTY"]
+                       th [ el "abbr" [ attr("title", "Open profit and loss")]
+                            text "Open PnL"]]]]
+
+
+    let positionsTable = [ header ]
+
 
     let pnlElement title (percentage: decimal<percent>)= 
         let percentageSpan =
@@ -95,45 +126,68 @@ module Main =
                        class' "mb-2" ]
                   percentageSpan ]]
 
-    let button str = 
-        Level.item [ bulma.button [ text str ]]
+    let button dispatch summaryInfo isSelectedStore = 
+        Level.item [ bulma.button [ text <| SummaryInfo.name summaryInfo
+                                    onClick (fun _ -> SelectedPaneChanged summaryInfo |> dispatch) []
+                                    bindClass isSelectedStore "selected" ]]
 
 
-    let level = 
+    let level dispatch (selectedPaneStore: IObservable<SummaryInfo>) = 
+        // let isPositionsSelected = selectedPaneStore |> Store.map (function Positions -> true | _ -> false)
+        let isPositionsSelected = selectedPaneStore |> Store.map ((=) Positions)
+        let isBalancesSelected  = selectedPaneStore |> Store.map ((=) Balances)
         Bulma.level
-            [ Level.left [ button "Postitions"
-                           button "Balances" ]
+            [ Level.left [ button dispatch Positions isPositionsSelected
+                           button dispatch Balances isBalancesSelected ]
               Level.right [ pnlElement "Open Pnl" -3.22m<percent> ]
               Level.right [ pnlElement "Day Pnl" 3.34m<percent> ]]
 
 
 
-    let contentView = 
+    let contentView model dispatch = 
+
+        let selectedPaneStore = 
+            model 
+            |> Store.map (fun m -> m.SelectedPane)
+            |> Store.distinct // New value must be different from last value
+
+        let getViewForSelectedPane = function 
+            | Positions -> positionsTable
+            | Balances -> text "Not implemented yet"
+
+
         bulma.section [ div [ style [ Css.backgroundColor Style.lightGrey ]
 
                               bulma.container 
                                   [ class' "p-5"
                                     h3 [ text "Account Summary" ]
                                     bulma.container [ class' "pt-5"
-                                                      level]]]]
+                                                      level dispatch selectedPaneStore
+                                                      Bind.fragment selectedPaneStore getViewForSelectedPane]]]]
 
-    let section = 
+
+module Main = 
+    open Bulma
+
+    let section model dispatch = 
         div [ 
             class' "full-height"
             bulma.columns
                 [ bulma.column [ column.is 2
                                  style [ Css.backgroundColor Style.lightGrey ]]
-                  bulma.column [ contentView ] ] ]
-
+                  bulma.column [ SummaryPage.contentView model dispatch ] ] ]
 
 
 // In Sutil, the view() function is called *once*
 let view() = 
-    div [  
-        class' "body"
-        Navbar.section 
-        Main.section
-        ]
+    let model, dispatch = Store.makeElmishSimple init update ignore ()
+
+
+    div [ disposeOnUnmount [ model ]
+
+          class' "body"
+          Navbar.section 
+          Main.section model dispatch]
     |> withStyle mainStylesheet
 
 
