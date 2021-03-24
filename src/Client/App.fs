@@ -12,6 +12,7 @@ open Sutil.Styling
 open Sutil.Bulma
 
 [<Measure>] type percent
+[<Measure>] type price
 
 module Style = 
     let [<Literal>] lightGrey = "#EEEEEE"
@@ -36,41 +37,88 @@ module Bulma =
         let item = createElement div "level-item"
 
 
-type SummaryInfo = 
+type Symbol = Symbol of string
+
+
+type StockPrice = StockPrice of decimal<price>
+type CurrentStockPrice = CurrentStockPrice of StockPrice
+type LastClosePrice = LastClosePrice of StockPrice
+
+
+type Quantity = Quantity of uint // unsigned integer (always positive)
+type ShareQuantity = ShareQuantity of Quantity
+
+
+type PnL = PnL of decimal<percent>
+
+type OpenPnL = OpenPnL of PnL
+type PositionOpenPnL = PositionOpenPnL of OpenPnL
+type PortfolioOpenPnL = PortfolioOpenPnL of OpenPnL
+
+type DayPnL = DayPnl of PnL
+type PositionDayPnL = PositionDayPnL of DayPnL
+type PortfolioDayPnL = PortfolioDayPnL of DayPnL
+
+
+type Stock = {
+    Symbol: Symbol
+    CurrentPrice: CurrentStockPrice
+    LastClosePrice: LastClosePrice
+}
+
+
+type AveragePrice = AveragePrice of decimal<price>
+type AverageOpenPrice = AverageOpenPrice of AveragePrice
+
+type PositionInfo = {
+    Stock: Stock
+    OpenQty: ShareQuantity
+    // PnL can be calculated. Only part of the UI, but not the domain.
+    // OpenPnL: PositionOpenPnL
+    // DayPnL: PositionDayPnL
+    AverageOpenPrice: AverageOpenPrice
+}
+
+type Balances = DUMMY
+
+
+type Portfolio = {
+    Positions: PositionInfo list
+    Balances: Balances
+}
+
+
+type PortfolioTab = 
     | Positions
     | Balances
-
-module SummaryInfo = 
-    let name summaryInfo = 
-        match summaryInfo with 
-        | Positions -> "Positions"
-        | Balances  -> "Balances"
 
 
 type Model = 
     {
-        OpenPnl: decimal<percent>
-        DayPnl: decimal<percent>
-        SelectedPane: SummaryInfo
+        // PortfolioOpenPnL: PortfolioOpenPnL // Calculated based on the data we have.
+        // PortfolioDayPnL: PortfolioDayPnL
+        Portfolio: Portfolio
+        CurrentPortfolioTab: PortfolioTab
     }
 
 // Events
 type Message = 
-    | SelectedPaneChanged of SummaryInfo
+    | SelectedPaneChanged of PortfolioTab
 
 
-let init () : Model = { 
-    OpenPnl = 3.35m<percent>
-    DayPnl = -3.32m<percent>
-    SelectedPane = Balances
-}
+let init () : Model = 
+    let portfolio = { Balances = DUMMY; Positions = [] }
+    { 
+        Portfolio = portfolio 
+        CurrentPortfolioTab = Positions
+    }
 
 
 let update (msg : Message) (model : Model) : Model =
     match msg with 
-    | SelectedPaneChanged summaryInfo ->
-        if summaryInfo <> model.SelectedPane then
-            { model with SelectedPane = summaryInfo }
+    | SelectedPaneChanged portfolioTab ->
+        if portfolioTab <> model.CurrentPortfolioTab then
+            { model with CurrentPortfolioTab = portfolioTab }
         else 
             model
         
@@ -101,15 +149,16 @@ module SummaryPage =
     open Bulma
 
     let header = 
-        [ thead [ tr [ th [ text "Symbols" ] 
-                       th [ text "Price"]
-                       th [ el "abbr" [ attr("title", "Open quantity")]
-                            text "QTY"]
-                       th [ el "abbr" [ attr("title", "Open profit and loss")]
-                            text "Open PnL"]]]]
+        thead [ tr [ th [ text "Symbols" ] 
+                     th [ text "Price"]
+                     th [ el "abbr" [ attr("title", "Open quantity")]
+                          text "QTY"]
+                     th [ el "abbr" [ attr("title", "Open profit and loss")]
+                          text "Open PnL"]]]
 
 
-    let positionsTable = [ header ]
+    let positionsTable = 
+        table [ header ]
 
 
     let pnlElement title (percentage: decimal<percent>)= 
@@ -126,13 +175,13 @@ module SummaryPage =
                        class' "mb-2" ]
                   percentageSpan ]]
 
-    let button dispatch summaryInfo isSelectedStore = 
-        Level.item [ bulma.button [ text <| SummaryInfo.name summaryInfo
-                                    onClick (fun _ -> SelectedPaneChanged summaryInfo |> dispatch) []
+    let button dispatch portfolioTab isSelectedStore = 
+        Level.item [ bulma.button [ text <| string portfolioTab
+                                    onClick (fun _ -> dispatch <| SelectedPaneChanged portfolioTab) []
                                     bindClass isSelectedStore "selected" ]]
 
 
-    let level dispatch (selectedPaneStore: IObservable<SummaryInfo>) = 
+    let level dispatch (selectedPaneStore: IObservable<PortfolioTab>) = 
         // let isPositionsSelected = selectedPaneStore |> Store.map (function Positions -> true | _ -> false)
         let isPositionsSelected = selectedPaneStore |> Store.map ((=) Positions)
         let isBalancesSelected  = selectedPaneStore |> Store.map ((=) Balances)
@@ -148,7 +197,7 @@ module SummaryPage =
 
         let selectedPaneStore = 
             model 
-            |> Store.map (fun m -> m.SelectedPane)
+            |> Store.map (fun m -> m.CurrentPortfolioTab)
             |> Store.distinct // New value must be different from last value
 
         let getViewForSelectedPane = function 
