@@ -42,11 +42,20 @@ type Symbol = Symbol of string
 
 type StockPrice = StockPrice of decimal<price>
 type CurrentStockPrice = CurrentStockPrice of StockPrice
+
+[<RequireQualifiedAccess>]
+module CurrentStockPrice = 
+    let get (CurrentStockPrice (StockPrice price )) = price
+
 type LastClosePrice = LastClosePrice of StockPrice
 
 
 type Quantity = Quantity of uint // unsigned integer (always positive)
 type ShareQuantity = ShareQuantity of Quantity
+
+[<RequireQualifiedAccess>]
+module ShareQuantity = 
+    let get (ShareQuantity (Quantity num)) = num
 
 
 type PnL = PnL of decimal<percent>
@@ -66,9 +75,18 @@ type Stock = {
     LastClosePrice: LastClosePrice
 }
 
+[<RequireQualifiedAccess>]
+module Stock = 
+    let getSymbolString ({ Symbol = (Symbol ticker) }) = 
+        ticker
+
 
 type AveragePrice = AveragePrice of decimal<price>
 type AverageOpenPrice = AverageOpenPrice of AveragePrice
+
+[<RequireQualifiedAccess>]
+module AverageOpenPrice = 
+    let get (AverageOpenPrice (AveragePrice price)) = price
 
 type PositionInfo = {
     Stock: Stock
@@ -107,7 +125,19 @@ type Message =
 
 
 let init () : Model = 
-    let portfolio = { Balances = DUMMY; Positions = [] }
+    let stock = {
+        Symbol = Symbol "GME"
+        CurrentPrice = CurrentStockPrice (StockPrice (3.5m<price>))
+        LastClosePrice = LastClosePrice (StockPrice (4.6m<price>))
+    }
+
+    let positionInfo = {
+        Stock = stock
+        AverageOpenPrice = AverageOpenPrice (AveragePrice (2.567m<price>))
+        OpenQty = ShareQuantity (Quantity 34u)
+    }
+
+    let portfolio = { Balances = DUMMY; Positions = [ positionInfo ] }
     { 
         Portfolio = portfolio 
         CurrentPortfolioTab = Positions
@@ -148,17 +178,46 @@ module Navbar =
 module SummaryPage = 
     open Bulma
 
-    let header = 
-        thead [ tr [ th [ text "Symbols" ] 
-                     th [ text "Price"]
-                     th [ el "abbr" [ attr("title", "Open quantity")]
-                          text "QTY"]
-                     th [ el "abbr" [ attr("title", "Open profit and loss")]
-                          text "Open PnL"]]]
+    let positionsTable (positionStore: IObservable<PositionInfo list>) = 
+
+        let header = 
+            thead [ tr [ th [ text "Symbols" ] 
+                         th [ text "Open price"]
+                         th [ text "Current price"]
+                         th [ el "abbr" [ attr("title", "Open quantity")]
+                              text "QTY"]
+                         th [ el "abbr" [ attr("title", "Open profit and loss")]
+                              text "Open PnL"]]]
 
 
-    let positionsTable = 
-        table [ header ]
+        let getRowFromPositionInfo (info: PositionInfo) = 
+            let openQtyString = 
+                ShareQuantity.get info.OpenQty
+                |> string
+
+            let openPriceString = 
+                AverageOpenPrice.get info.AverageOpenPrice
+                |> string
+
+            let currentPriceString = 
+                info.Stock.CurrentPrice
+                |> CurrentStockPrice.get 
+                |> string
+
+            tr [ td [ text <| Stock.getSymbolString info.Stock ]
+                 td [ text openPriceString ]
+                 td [ text currentPriceString ]
+                 td [ text openQtyString ]]
+
+        let rows positions = 
+            positions
+            |> List.map getRowFromPositionInfo
+
+
+        let getTableFromPositions positions = 
+            Bulma.table <| header::rows positions
+
+        Bind.fragment positionStore  getTableFromPositions
 
 
     let pnlElement title (percentage: decimal<percent>)= 
@@ -200,8 +259,20 @@ module SummaryPage =
             |> Store.map (fun m -> m.CurrentPortfolioTab)
             |> Store.distinct // New value must be different from last value
 
-        let getViewForSelectedPane = function 
-            | Positions -> positionsTable
+        let portfolioStore = 
+            model 
+            |> Store.map (fun m -> m.Portfolio)
+            |> Store.distinct // New value must be different from last value
+
+        let getViewForSelectedPane portfolio = function 
+            | Positions -> 
+                let positionListStore = 
+                    portfolio
+                    |> Store.map (fun p -> p.Positions)
+                    |> Store.distinct
+
+                positionsTable positionListStore
+
             | Balances -> text "Not implemented yet"
 
 
@@ -212,7 +283,7 @@ module SummaryPage =
                                     h3 [ text "Account Summary" ]
                                     bulma.container [ class' "pt-5"
                                                       level dispatch selectedPaneStore
-                                                      Bind.fragment selectedPaneStore getViewForSelectedPane]]]]
+                                                      Bind.fragment selectedPaneStore <| getViewForSelectedPane portfolioStore ]]]]
 
 
 module Main = 
