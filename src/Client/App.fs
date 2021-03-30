@@ -10,9 +10,8 @@ open Sutil.DOM
 open Sutil.Attr
 open Sutil.Styling
 open Sutil.Bulma
+open Client.Types
 
-[<Measure>] type percent
-[<Measure>] type price
 
 module Style = 
     let [<Literal>] lightGrey = "#EEEEEE"
@@ -37,75 +36,8 @@ module Bulma =
         let item = createElement div "level-item"
 
 
-type Symbol = Symbol of string
-
-
-type StockPrice = StockPrice of decimal<price>
-type CurrentStockPrice = CurrentStockPrice of StockPrice
-
-[<RequireQualifiedAccess>]
-module CurrentStockPrice = 
-    let get (CurrentStockPrice (StockPrice price )) = price
-
-type LastClosePrice = LastClosePrice of StockPrice
-
-
-type Quantity = Quantity of uint // unsigned integer (always positive)
-type ShareQuantity = ShareQuantity of Quantity
-
-[<RequireQualifiedAccess>]
-module ShareQuantity = 
-    let get (ShareQuantity (Quantity num)) = num
-
-
-type PnL = PnL of decimal<percent>
-
-type OpenPnL = OpenPnL of PnL
-type PositionOpenPnL = PositionOpenPnL of OpenPnL
-type PortfolioOpenPnL = PortfolioOpenPnL of OpenPnL
-
-type DayPnL = DayPnl of PnL
-type PositionDayPnL = PositionDayPnL of DayPnL
-type PortfolioDayPnL = PortfolioDayPnL of DayPnL
-
-
-type Stock = {
-    Symbol: Symbol
-    CurrentPrice: CurrentStockPrice
-    LastClosePrice: LastClosePrice
-}
-
-[<RequireQualifiedAccess>]
-module Stock = 
-    let getSymbolString ({ Symbol = (Symbol ticker) }) = 
-        ticker
-
-
-type AveragePrice = AveragePrice of decimal<price>
-type AverageOpenPrice = AverageOpenPrice of AveragePrice
-
-[<RequireQualifiedAccess>]
-module AverageOpenPrice = 
-    let get (AverageOpenPrice (AveragePrice price)) = price
-
-type PositionInfo = {
-    Stock: Stock
-    OpenQty: ShareQuantity
-    // PnL can be calculated. Only part of the UI, but not the domain.
-    // OpenPnL: PositionOpenPnL
-    // DayPnL: PositionDayPnL
-    AverageOpenPrice: AverageOpenPrice
-}
-
-type Balances = DUMMY
-
-
-type Portfolio = {
-    Positions: PositionInfo list
-    Balances: Balances
-}
-
-
+// This type is about presentation,
+// so we don't put it in Types.fs
 type PortfolioTab = 
     | Positions
     | Balances
@@ -123,25 +55,12 @@ type Model =
 type Message = 
     | SelectedPaneChanged of PortfolioTab
 
+// open Client.SeedData
 
-let init () : Model = 
-    let stock = {
-        Symbol = Symbol "GME"
-        CurrentPrice = CurrentStockPrice (StockPrice (3.5m<price>))
-        LastClosePrice = LastClosePrice (StockPrice (4.6m<price>))
-    }
-
-    let positionInfo = {
-        Stock = stock
-        AverageOpenPrice = AverageOpenPrice (AveragePrice (2.567m<price>))
-        OpenQty = ShareQuantity (Quantity 34u)
-    }
-
-    let portfolio = { Balances = DUMMY; Positions = [ positionInfo ] }
-    { 
-        Portfolio = portfolio 
-        CurrentPortfolioTab = Positions
-    }
+let init () : Model = {
+    Portfolio = Client.SeedData.portfolio
+    CurrentPortfolioTab = Positions
+}
 
 
 let update (msg : Message) (model : Model) : Model =
@@ -166,6 +85,15 @@ let mainStylesheet =
           rule "button.button.selected" [ Css.backgroundColor "#6A4287"
                                           Css.color "white" ]
         ]
+
+[<RequireQualifiedAccess>]
+module PnL = 
+    let span (PnL percentage) =
+        span [ class' "pnl-element"
+               if percentage >= 0.0m<percent>
+               then class' "positive"
+               else class' "negative"
+               text $"""{percentage}{"%"}""" ]
 
 
 module Navbar = 
@@ -204,10 +132,15 @@ module SummaryPage =
                 |> CurrentStockPrice.get 
                 |> string
 
+            let (PositionOpenPnL (OpenPnL pnl)) = 
+                info 
+                |> PositionOpenPnL.calculate
+
             tr [ td [ text <| Stock.getSymbolString info.Stock ]
                  td [ text openPriceString ]
                  td [ text currentPriceString ]
-                 td [ text openQtyString ]]
+                 td [ text openQtyString ]
+                 td [ PnL.span pnl ]]
 
         let rows positions = 
             positions
@@ -220,19 +153,14 @@ module SummaryPage =
         Bind.fragment positionStore  getTableFromPositions
 
 
-    let pnlElement title (percentage: decimal<percent>)= 
-        let percentageSpan =
-            span [ class' "pnl-element"
-                   if percentage >= 0.0m<percent>
-                   then class' "positive"
-                   else class' "negative"
-                   text $"""{percentage}{"%"}""" ]
+    let pnlElement title pnl = 
+
         Level.item
             [ bulma.container 
                 [ style [ Css.textAlign "center"] 
                   h5 [ text title
                        class' "mb-2" ]
-                  percentageSpan ]]
+                  PnL.span pnl ]]
 
     let button dispatch portfolioTab isSelectedStore = 
         Level.item [ bulma.button [ text <| string portfolioTab
@@ -247,8 +175,8 @@ module SummaryPage =
         Bulma.level
             [ Level.left [ button dispatch Positions isPositionsSelected
                            button dispatch Balances isBalancesSelected ]
-              Level.right [ pnlElement "Open Pnl" -3.22m<percent> ]
-              Level.right [ pnlElement "Day Pnl" 3.34m<percent> ]]
+              Level.right [ pnlElement "Open Pnl" (PnL -3.22m<percent>) ]
+              Level.right [ pnlElement "Day Pnl" (PnL 3.34m<percent>) ]]
 
 
 

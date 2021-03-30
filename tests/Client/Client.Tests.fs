@@ -4,12 +4,14 @@ open Client.Types
 open Fable.Mocha
 
 let pnl = testList "PnL" [
-  testCase "Position Open PnL calculates correctly" <| fun _ ->
-    let position = SeedData.positionInfo
-    
-    let expected = PositionOpenPnL (OpenPnL (PnL (100m<percent>)))
-    let actual = PositionOpenPnL.calculate position
-    Expect.equal actual expected "Open PnL calculates correctly"
+    testCase "Position Open PnL calculates correctly" <| fun _ ->
+        let position = SeedData.positionInfo
+
+        let expected = PositionOpenPnL (OpenPnL (PnL 100m<percent>))
+        // Needs current stock price + last closing price
+        let actual = PositionOpenPnL.calculate position
+
+        Expect.equal actual expected "Open PnL calculates correctly"
 ]
 
 let client = testList "Client" [ pnl ]
