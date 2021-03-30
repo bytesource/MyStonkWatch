@@ -1,27 +1,14 @@
 module Server
 
-open Fable.Remoting.Server
-open Fable.Remoting.Giraffe
-open Saturn
+open Falco
+open Falco.Routing
+open Falco.HostBuilder
 
-type Storage () =
-    let todos = ResizeArray<_>()
+open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.Hosting
+open Microsoft.Extensions.DependencyInjection
 
-    member __.GetTodos () =
-        List.ofSeq todos
-
-    member __.AddTodo (todo: Todo) =
-        if Todo.isValid todo.Description then
-            todos.Add todo
-            Ok ()
-        else Error "Invalid todo"
-
-let storage = Storage()
-
-storage.AddTodo(Todo.create "Create new SAFE project") |> ignore
-storage.AddTodo(Todo.create "Write your app") |> ignore
-storage.AddTodo(Todo.create "Ship it !!!") |> ignore
-
+(*
 let todosApi =
     { getTodos = fun () -> async { return storage.GetTodos() }
       addTodo =
@@ -36,14 +23,38 @@ let webApp =
     |> Remoting.withRouteBuilder Route.builder
     |> Remoting.fromValue todosApi
     |> Remoting.buildHttpHandler
+*)
 
-let app =
-    application {
-        url "http://0.0.0.0:8085"
-        use_router webApp
-        memory_cache
-        use_static "public"
-        use_gzip
-    }
+// ------------
+// Register services
+// ------------
+let configureServices (services : IServiceCollection) =
+    services.AddFalco() |> ignore
 
-run app
+// ------------
+// Activate middleware
+// ------------
+let configureApp (endpoints : HttpEndpoint list) (ctx : WebHostBuilderContext) (app : IApplicationBuilder) =    
+    let devMode = StringUtils.strEquals ctx.HostingEnvironment.EnvironmentName "Development"    
+    app.UseWhen(devMode, fun app -> 
+            app.UseDeveloperExceptionPage())
+       .UseWhen(not(devMode), fun app -> 
+            app.UseFalcoExceptionHandler(Response.withStatusCode 500 >> Response.ofPlainText "Server error"))
+       .UseFalco(endpoints) |> ignore
+
+// -----------
+// Configure Host
+// -----------
+let configureHost (endpoints : HttpEndpoint list) (webhost : IWebHostBuilder) =
+    webhost.ConfigureServices(configureServices)
+           .Configure(configureApp endpoints)
+           .UseUrls([| "http://0.0.0.0:8085"|])
+
+
+
+webHost [||] {
+    configure configureHost
+    endpoints [                    
+        get "/api/" (Response.ofPlainText "Hello World")
+    ]
+}
