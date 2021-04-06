@@ -5,35 +5,56 @@ open System
 // https://github.com/bengobeil/StonkWatch/blob/master/src/Client/App.fs
 // https://github.com/bytesource/MyStonkWatch
 open Sutil
-open Sutil.DOM.Html
 open Sutil.DOM
 open Sutil.Attr
 open Sutil.Styling
 open Sutil.Bulma
 open Client.Types
+open Feliz
+open type Feliz.length
+
+[<RequireQualifiedAccess>]
+module Sutil = 
+    let map f x = 
+        Store.map f x 
+        |> Store.distinct
+
+    
+    let bind f x = Bind.fragment x f
 
 
 module Style = 
     let [<Literal>] lightGrey = "#EEEEEE"
+
+[<AutoOpen>]
+module SutilOperators = 
+    let (|>>) x f = 
+        x 
+        |> Store.map f 
+        |> Store.distinct
+
+
+    let (>>==) x f = Bind.fragment x f
+
 
 
 module Bulma = 
     let createElement nodeFn css =
         fun props -> nodeFn <| [ class' css ] @ props
 
-    let navbar = createElement nav "navbar" 
-    let level = createElement nav "level"
-    let table = createElement table "table"
+    let navbar = createElement Html.nav "navbar" 
+    let level = createElement Html.nav "level"
+    let table = createElement Html.table "table"
 
     
     module Navbar = 
-        let brand = createElement nav "navbar-brand"
-        let item  = createElement a   "navbar-item"
+        let brand = createElement Html.nav "navbar-brand"
+        let item  = createElement Html.a   "navbar-item"
             
     module Level = 
-        let left = createElement div "level-left"
-        let right = createElement div "level-right"
-        let item = createElement div "level-item"
+        let left = createElement Html.div "level-left"
+        let right = createElement Html.div "level-right"
+        let item = createElement Html.div "level-item"
 
 
 // This type is about presentation,
@@ -54,32 +75,49 @@ type Model =
 // Events
 type Message = 
     | SelectedPaneChanged of PortfolioTab
+    | FetchPortfolio
+    | PortfolioFetched of Portfolio
 
 // open Client.SeedData
 
-let init () : Model = {
-    Portfolio = Client.SeedData.portfolio
-    CurrentPortfolioTab = Positions
-}
+let init () : Model * Cmd<Message> = 
+    {   // We start with an empty portfolio
+        Portfolio = { Positions = []; Balances = DUMMY }
+        CurrentPortfolioTab = Positions
+    }, Cmd.ofMsg FetchPortfolio
 
 
-let update (msg : Message) (model : Model) : Model =
+let update (msg : Message) (model : Model) : Model * Cmd<Message> =
     match msg with 
     | SelectedPaneChanged portfolioTab ->
-        if portfolioTab <> model.CurrentPortfolioTab then
-            { model with CurrentPortfolioTab = portfolioTab }
-        else 
-            model
+        let model = 
+            if portfolioTab <> model.CurrentPortfolioTab then
+                { model with CurrentPortfolioTab = portfolioTab }
+            else 
+                model
+
+        model, Cmd.none
+
+    | FetchPortfolio -> 
+        let message = async {
+            do! Async.Sleep 2000
+            return (PortfolioFetched Client.SeedData.portfolio)
+        }
+
+        model, Cmd.OfAsync.result message
+
+    | PortfolioFetched portfolio ->
+        { model with Portfolio = portfolio }, Cmd.none
         
 
 // View --------------------------------------------
 let mainStylesheet = 
     Sutil.Bulma.withBulmaHelpers
-        [ rule "nav.navbar" [ Css.borderBottom $"1px {Style.lightGrey} solid" ]
-          rule ".body" [ Css.height "100vh"]
-          rule ".full-height" [ Css.height "100%"]
-          rule ".span.pnl-percent" [ Css.fontSize "1.1em"
-                                     Css.fontWeight "500" ]
+        [ rule "nav.navbar" [ Css.borderBottom (px 1, borderStyle.solid, Style.lightGrey) ]
+          rule ".body" [ Css.height (vh 100)]
+          rule ".full-height" [ Css.height (percent 100)]
+          rule ".span.pnl-percent" [ Css.fontSize (em 1.1) 
+                                     Css.fontWeight 500 ]
           rule ".pnl-element.positive" [ Css.color "green" ]
           rule ".pnl-element.negative" [ Css.color "red" ]
           rule "button.button.selected" [ Css.backgroundColor "#6A4287"
@@ -89,18 +127,20 @@ let mainStylesheet =
 [<RequireQualifiedAccess>]
 module PnL = 
     let span (PnL percentage) =
-        span [ class' "pnl-element"
-               if percentage >= 0.0m<percent>
-               then class' "positive"
-               else class' "negative"
-               text $"""{percentage}{"%"}""" ]
+        Html.span [ class' "pnl-element"
+                    if percentage >= 0.0m<percent> then
+                        class' "positive"
+                    else 
+                        class' "negative"
+
+                    Html.text $"""{percentage}{"%"}""" ]
 
 
 module Navbar = 
     open Bulma
 
     let section = 
-        navbar [ Navbar.brand [ Navbar.item [ h5 [ text "MY STONK"] ]]]
+        navbar [ Navbar.brand [ Navbar.item [ Html.h5 [ Html.text "MY STONK"] ]]]
 
 
 module SummaryPage = 
@@ -109,13 +149,13 @@ module SummaryPage =
     let positionsTable (positionStore: IObservable<PositionInfo list>) = 
 
         let header = 
-            thead [ tr [ th [ text "Symbols" ] 
-                         th [ text "Open price"]
-                         th [ text "Current price"]
-                         th [ el "abbr" [ attr("title", "Open quantity")]
-                              text "QTY"]
-                         th [ el "abbr" [ attr("title", "Open profit and loss")]
-                              text "Open PnL"]]]
+            Html.thead [ Html.tr [ Html.th [ Html.text "Symbols" ] 
+                                   Html.th [ Html.text "Open price"]
+                                   Html.th [ Html.text "Current price"]
+                                   Html.th [ Html.abbr [ attr("title", "Open quantity")]
+                                             Html.text "QTY"]
+                                   Html.th [ Html.abbr [ attr("title", "Open profit and loss")]
+                                             Html.text "Open PnL"]]]
 
 
         let getRowFromPositionInfo (info: PositionInfo) = 
@@ -136,11 +176,11 @@ module SummaryPage =
                 info 
                 |> PositionOpenPnL.calculate
 
-            tr [ td [ text <| Stock.getSymbolString info.Stock ]
-                 td [ text openPriceString ]
-                 td [ text currentPriceString ]
-                 td [ text openQtyString ]
-                 td [ PnL.span pnl ]]
+            Html.tr [ Html.td [ Html.text (Stock.getSymbolString info.Stock) ]
+                      Html.td [ Html.text openPriceString ]
+                      Html.td [ Html.text currentPriceString ]
+                      Html.td [ Html.text openQtyString ]
+                      Html.td [ PnL.span pnl ]]
 
         let rows positions = 
             positions
@@ -150,28 +190,32 @@ module SummaryPage =
         let getTableFromPositions positions = 
             Bulma.table <| header::rows positions
 
-        Bind.fragment positionStore  getTableFromPositions
+        positionStore >>== getTableFromPositions
+        // positionStore |> Sutil.bind getTableFromPositions
+        // Bind.fragment positionStore  getTableFromPositions
 
 
-    let pnlElement title pnl = 
+    let pnlElement (title: string) pnl = 
 
         Level.item
             [ bulma.container 
-                [ style [ Css.textAlign "center"] 
-                  h5 [ text title
-                       class' "mb-2" ]
+                [ style [ Css.textAlignCenter] 
+                  Html.h5 [ Html.text title; class' "mb-2" ]
                   PnL.span pnl ]]
 
+
     let button dispatch portfolioTab isSelectedStore = 
-        Level.item [ bulma.button [ text <| string portfolioTab
-                                    onClick (fun _ -> dispatch <| SelectedPaneChanged portfolioTab) []
-                                    bindClass isSelectedStore "selected" ]]
+        let tabString = string portfolioTab
+        Level.item [ bulma.button.button [ Html.text tabString
+                                           onClick (fun _ -> dispatch <| SelectedPaneChanged portfolioTab) []
+                                           bindClass isSelectedStore "selected" ]]
 
 
     let level dispatch (selectedPaneStore: IObservable<PortfolioTab>) = 
         // let isPositionsSelected = selectedPaneStore |> Store.map (function Positions -> true | _ -> false)
-        let isPositionsSelected = selectedPaneStore |> Store.map ((=) Positions)
-        let isBalancesSelected  = selectedPaneStore |> Store.map ((=) Balances)
+        let isPositionsSelected = selectedPaneStore |>> ((=) Positions)
+        // let isPositionsSelected = selectedPaneStore |> Sutil.map ((=) Positions)
+        let isBalancesSelected  = selectedPaneStore |>> ((=) Balances)
         Bulma.level
             [ Level.left [ button dispatch Positions isPositionsSelected
                            button dispatch Balances isBalancesSelected ]
@@ -182,60 +226,56 @@ module SummaryPage =
 
     let contentView model dispatch = 
 
-        let selectedPaneStore = 
+        let currentTabStore = 
             model 
-            |> Store.map (fun m -> m.CurrentPortfolioTab)
-            |> Store.distinct // New value must be different from last value
+            |> Sutil.map (fun m -> m.CurrentPortfolioTab)
+            // model |>> (fun m -> m.CurrentPortfolioTab)
 
         let portfolioStore = 
-            model 
-            |> Store.map (fun m -> m.Portfolio)
-            |> Store.distinct // New value must be different from last value
+            model |>> (fun m -> m.Portfolio)
 
-        let getViewForSelectedPane portfolio = function 
+
+        let getViewForSelectedPane = function 
             | Positions -> 
                 let positionListStore = 
-                    portfolio
-                    |> Store.map (fun p -> p.Positions)
-                    |> Store.distinct
+                    portfolioStore |>> (fun p -> p.Positions)
 
-                positionsTable positionListStore
+                // Wrap a div to avoid a bug.
+                Html.div [ positionsTable positionListStore ]
 
-            | Balances -> text "Not implemented yet"
+            | Balances -> Html.text "Not implemented yet"
 
 
-        bulma.section [ div [ style [ Css.backgroundColor Style.lightGrey ]
+        bulma.section [ Html.div [ style [ Css.backgroundColor Style.lightGrey ]
 
-                              bulma.container 
-                                  [ class' "p-5"
-                                    h3 [ text "Account Summary" ]
-                                    bulma.container [ class' "pt-5"
-                                                      level dispatch selectedPaneStore
-                                                      Bind.fragment selectedPaneStore <| getViewForSelectedPane portfolioStore ]]]]
+                                   bulma.container [ class' "p-5"
+                                                     Html.h3 [ Html.text "Account Summary" ]
+                                                     bulma.container [ class' "pt-5"
+                                                                       level dispatch currentTabStore
+                                                                       currentTabStore >>== getViewForSelectedPane ]]]]
 
 
 module Main = 
     open Bulma
 
     let section model dispatch = 
-        div [ 
+        Html.div [ 
             class' "full-height"
             bulma.columns
-                [ bulma.column [ column.is 2
+                [ bulma.column [ column.is2
                                  style [ Css.backgroundColor Style.lightGrey ]]
                   bulma.column [ SummaryPage.contentView model dispatch ] ] ]
 
 
 // In Sutil, the view() function is called *once*
 let view() = 
-    let model, dispatch = Store.makeElmishSimple init update ignore ()
+    let model, dispatch = Store.makeElmish init update ignore ()
 
 
-    div [ disposeOnUnmount [ model ]
-
-          class' "body"
-          Navbar.section 
-          Main.section model dispatch]
+    Html.div [ disposeOnUnmount [ model ]
+               class' "body"
+               Navbar.section 
+               Main.section model dispatch]
     |> withStyle mainStylesheet
 
 
