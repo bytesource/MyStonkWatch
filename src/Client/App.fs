@@ -9,7 +9,7 @@ open Sutil.DOM
 open Sutil.Attr
 open Sutil.Styling
 open Sutil.Bulma
-open Client.Types
+open Shared.Types
 open Feliz
 open type Feliz.length
 
@@ -99,10 +99,10 @@ let update (msg : Message) (model : Model) : Model * Cmd<Message> =
         model, Cmd.none
 
     | FetchPortfolio -> 
-        let message = async {
-            do! Async.Sleep 2000
-            return (PortfolioFetched Client.SeedData.portfolio)
-        }
+        // let message = async {
+            // do! Async.Sleep 2000
+            // return (PortfolioFetched Client.SeedData.portfolio)
+        // }
 
         model, Cmd.OfAsync.result message
 

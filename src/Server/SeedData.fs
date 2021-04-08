@@ -1,5 +1,5 @@
-﻿module Client.SeedData
-open Types
+﻿module Server.SeedData
+open Shared.Types
 
 let stock = {
         Symbol = Symbol "GME"
