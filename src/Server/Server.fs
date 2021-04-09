@@ -1,6 +1,6 @@
 module Server.Host
 
-open Fable.Remoting.Sever
+open Fable.Remoting.Server
 open Fable.Remoting.AspNetCore
 open Falco
 open Falco.Routing

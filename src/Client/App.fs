@@ -1,6 +1,7 @@
 module App
 
 open System
+open Shared.Types
 
 // https://github.com/bengobeil/StonkWatch/blob/master/src/Client/App.fs
 // https://github.com/bytesource/MyStonkWatch
@@ -9,9 +10,10 @@ open Sutil.DOM
 open Sutil.Attr
 open Sutil.Styling
 open Sutil.Bulma
-open Shared.Types
 open Feliz
 open type Feliz.length
+
+open Fable.Remoting.Client
 
 [<RequireQualifiedAccess>]
 module Sutil = 
@@ -78,7 +80,12 @@ type Message =
     | FetchPortfolio
     | PortfolioFetched of Portfolio
 
-// open Client.SeedData
+
+let portfolioApi = 
+    Remoting.createApi()
+    |> Remoting.withRouteBuilder Route.builder
+    |> Remoting.buildProxy<IPortfolioApi>
+
 
 let init () : Model * Cmd<Message> = 
     {   // We start with an empty portfolio
@@ -99,12 +106,12 @@ let update (msg : Message) (model : Model) : Model * Cmd<Message> =
         model, Cmd.none
 
     | FetchPortfolio -> 
-        // let message = async {
-            // do! Async.Sleep 2000
-            // return (PortfolioFetched Client.SeedData.portfolio)
-        // }
+        let msg = async {
+            let! portfolio = portfolioApi.getPortfolio()
+            return PortfolioFetched portfolio
+        }
 
-        model, Cmd.OfAsync.result message
+        model, Cmd.OfAsync.result msg
 
     | PortfolioFetched portfolio ->
         { model with Portfolio = portfolio }, Cmd.none
