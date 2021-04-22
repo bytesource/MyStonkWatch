@@ -1,15 +1,35 @@
 #r "nuget: Oryx"
 #r "nuget: Oryx.ThothJsonNet"
 
-#load "Credentials.fs"
-open Credentials
+open System.Net.Http
 open Thoth.Json.Net
 open Oryx
 open Oryx.ThothJsonNet
-open System.Net.Http
+open Oryx.ThothJsonNet.ResponseReader
+
+#load "Credentials.fs"
+open Credentials
 
 let credentials = Demo.igApi
 
+
+type AccessToken = AccessToken of string
+type RefreshToken = RefreshToken of string
+
+
+type AuthResponse = {
+    AccessToken: AccessToken
+    RefreshToken: RefreshToken
+}
+with
+    static member Decoder: Decoder<AuthResponse> = 
+        Decode.object (fun get ->
+            let accessToken = get.Required.At ["oauthToken"; "access_token"] Decode.string
+            let refreshToken = get.Required.At ["oauthToken"; "refresh_token"] Decode.string
+            {
+                AccessToken = AccessToken accessToken
+                RefreshToken = RefreshToken refreshToken
+            })
 
 
 [<Literal>]
@@ -29,11 +49,11 @@ let headers (ApiKey apiKey) (AccountId id) =
 
 let client = new HttpClient()
 
+
 let context = 
     HttpContext.defaultContext
     |> HttpContext.withHttpClient client
     |> HttpContext.withHeaders (headers credentials.Key credentials.Id)
-
 
 
 let encodeBody (Identifier identifier) (Password password) = 
@@ -41,6 +61,7 @@ let encodeBody (Identifier identifier) (Password password) =
         "identifier", Encode.string identifier
         "password", Encode.string password
     ]
+
 
 let contentBuilder = 
     (fun () -> 
@@ -53,12 +74,15 @@ let request<'a> =
     >=> withUrl Url
     >=> withContent contentBuilder
     >=> fetch
+    >=> json AuthResponse.Decoder
+
 
 let resultTask = 
     request
     |> runAsync context
 
-let resultToString response = 
+
+let resultToStringAsync response = 
     async {
         let! r = response
         match r with 
@@ -66,10 +90,12 @@ let resultToString response =
         | Error msg -> return sprintf $"Error: {msg}"
     }
 
+
 let authResponse = 
     resultTask
     |> Async.AwaitTask
-    |> resultToString
+    |> resultToStringAsync
     |> Async.RunSynchronously
 
-// "Response: System.Net.Http.HttpConnectionResponseContent"
+// "Response: { AccessToken = AccessToken "access"
+//              RefreshToken = RefreshToken "refresh" }"
