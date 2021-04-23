@@ -10,35 +10,32 @@ open Oryx.ThothJsonNet.ResponseReader
 #load "Credentials.fs"
 open Credentials
 
-let credentials = Demo.igAuth
+let credentials = Demo.alpacaAuth
 
 
-type AccessToken = AccessToken of string
-type RefreshToken = RefreshToken of string
-
+type AuthId = AuthId of string
+type AccountNo = AccountNo of string
 
 type AuthResponse = {
-    AccessToken: AccessToken
-    RefreshToken: RefreshToken
+    AuthId: AuthId
+    AccountNo: AccountNo
 }
 with
     static member Decoder: Decoder<AuthResponse> = 
         Decode.object (fun get ->
-            let accessToken = get.Required.At ["oauthToken"; "access_token"] Decode.string
-            let refreshToken = get.Required.At ["oauthToken"; "refresh_token"] Decode.string
+            let authId = get.Required.At ["id"] Decode.string
+            let accountNo = get.Required.At ["account_number"] Decode.string
             {
-                AccessToken = AccessToken accessToken
-                RefreshToken = RefreshToken refreshToken
+                AuthId = AuthId authId
+                AccountNo = AccountNo accountNo
             })
 
 let (Url url) = credentials.Url
 
-let headers (ApiKey apiKey) (AccountId id) = 
+let headers (ApiKey apiKey) (SecretKey secretKey) = 
     [
-        ("VERSION", "3")
-        ("IG-ACCOUNT-ID", id)
-        ("X-IG-API-KEY", apiKey)
-       // ("Content-Type", "application/json; charset=UTF-8")
+        ("APCA-API-KEY-ID", apiKey)
+        ("APCA-API-SECRET-KEY", secretKey)
         ("Accept", "application/json; charset=UTF-8")
     ] 
     |> Map.ofList
@@ -50,26 +47,12 @@ let client = new HttpClient()
 let context = 
     HttpContext.defaultContext
     |> HttpContext.withHttpClient client
-    |> HttpContext.withHeaders (headers credentials.Key credentials.Id)
-
-
-let encodeBody (Identifier identifier) (Password password) = 
-    Encode.object [
-        "identifier", Encode.string identifier
-        "password", Encode.string password
-    ]
-
-
-let contentBuilder = 
-    (fun () -> 
-        new JsonPushStreamContent(encodeBody credentials.Identifier credentials.Password) 
-        :> HttpContent)
+    |> HttpContext.withHeaders (headers credentials.Key credentials.SecretKey)
 
 
 let request<'a> =
-    POST
+    GET
     >=> withUrl url
-    >=> withContent contentBuilder
     >=> fetch
     >=> json AuthResponse.Decoder
 
@@ -95,10 +78,5 @@ let authResponse =
     |> Async.RunSynchronously
 
 authResponse
-
-// "Response: { AccessToken = AccessToken "access"
-//              RefreshToken = RefreshToken "refresh" }"
-
-// From the docs:
-// access_token - the bearer token to be passed on subsequent API requests
-// refresh_token - the refresh token used to request a new access token
+// "Response: { AuthId    = AuthId "xxx"
+//              AccountNo = AccountNo "yyy" }"
